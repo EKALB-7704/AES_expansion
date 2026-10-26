@@ -1,5 +1,8 @@
 // Testing initial Commit
 
+import java.util.HexFormat;
+import java.util.Scanner;
+
 public class AESExpansion{
        
 
@@ -71,19 +74,21 @@ public class AESExpansion{
     }
 
 
+    /** FIPS-197 Appendix A test key. */
+    private static final String TEST_KEY = "2b7e151628aed2a6abf7158809cf4f3c";
+
     private static void expect(String label, int got, int want) {
         if (got != want)
             throw new AssertionError(String.format("%s: got %08x, want %08x", label, got, want));
         System.out.printf("ok  %s = %08x%n", label, got);
     }
 
-    public static void main(String[] args) {
+    /** Runs the FIPS-197 Appendix A vectors; throws AssertionError on any mismatch. */
+    private static void selfTest() {
         expect("rotWord", rotWord(0x09cf4f3c), 0xcf4f3c09);
         expect("subWord", subWord(0xcf4f3c09), 0x8a84eb01);
 
-        byte[] key = java.util.HexFormat.of()
-                .parseHex("2b7e151628aed2a6abf7158809cf4f3c");
-        int[] w = keyExpansion(key);
+        int[] w = keyExpansion(parseKey(TEST_KEY));
 
         expect("w[0]", w[0], 0x2b7e1516);
         expect("w[1]", w[1], 0x28aed2a6);
@@ -96,5 +101,74 @@ public class AESExpansion{
         expect("w[43]", w[43], 0xb6630ca6);
 
         System.out.println("all checks passed");
+    }
+
+    /**
+     * Parses a 128-bit key written as hex. Separators (spaces, colons,
+     * hyphens, underscores) are ignored, so "2b7e 1516 ..." is accepted.
+     */
+    private static byte[] parseKey(String text) {
+        String hex = text.replaceAll("[\\s:_-]", "");
+        if (hex.length() != 32)
+            throw new IllegalArgumentException(
+                "a 128-bit key is 32 hex digits; got " + hex.length());
+        try {
+            return HexFormat.of().parseHex(hex);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("not valid hex: " + text);
+        }
+    }
+
+    /** Prints the 44-word schedule as 11 round keys of four words each. */
+    private static void printSchedule(int[] w) {
+        for (int round = 0; round * 4 < w.length; round++) {
+            System.out.printf("round %2d:  ", round);
+            for (int c = 0; c < 4; c++) System.out.printf("%08x ", w[round * 4 + c]);
+            System.out.println();
+        }
+    }
+
+    /** Expands one key and prints it, reporting bad input without a stack trace. */
+    private static void expandAndPrint(String text) {
+        byte[] key;
+        try {
+            key = parseKey(text);
+        } catch (IllegalArgumentException e) {
+            System.out.println("error: " + e.getMessage());
+            return;
+        }
+        System.out.printf("key: %s%n", HexFormat.of().formatHex(key));
+        printSchedule(keyExpansion(key));
+    }
+
+    /** Reads keys from stdin until a blank line or end of input. */
+    private static void interactive() {
+        System.out.println("AES-128 key expansion.");
+        System.out.println("Enter a 128-bit key as 32 hex digits, or a blank line to quit.");
+        System.out.println("Example: " + TEST_KEY);
+        Scanner in = new Scanner(System.in);
+        while (true) {
+            System.out.print("key> ");
+            System.out.flush();
+            if (!in.hasNextLine()) break;
+            String line = in.nextLine().trim();
+            if (line.isEmpty()) break;
+            expandAndPrint(line);
+        }
+    }
+
+    public static void main(String[] args) {
+        if (args.length == 0) {
+            interactive();
+        } else if (args[0].equals("--test")) {
+            selfTest();
+        } else if (args[0].equals("--help") || args[0].equals("-h")) {
+            System.out.println("usage: java AESExpansion [<32-hex-digit key> | --test]");
+            System.out.println("  no arguments  read keys from stdin");
+            System.out.println("  <key>         expand that key");
+            System.out.println("  --test        run the FIPS-197 Appendix A vectors");
+        } else {
+            expandAndPrint(args[0]);
+        }
     }
 }
