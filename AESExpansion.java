@@ -52,13 +52,13 @@ public class AESExpansion{
                  | ((key[4*i+2] & 0xff) <<  8)
                  |  (key[4*i+3] & 0xff);
         }
-        /*
-        for (i = 4; i < 44; i++){
-            temp = w [i-1];
-            if (i mod 4 = 0) temp = Subword (RotWord (temp)) ^ Rcon[i/4];
+        
+        for (int i = 4; i < 44; i++){
+            int temp = w[i-1];
+            if (i % 4 == 0) temp = subWord(rotWord(temp)) ^ RCON[i/4 - 1];
 
             w[i] = w[i-4] ^ temp;
-        }*/
+        }
         return w;
     }
 
@@ -89,6 +89,11 @@ public class AESExpansion{
         expect("w[1]", w[1], 0x28aed2a6);
         expect("w[2]", w[2], 0xabf71588);
         expect("w[3]", w[3], 0x09cf4f3c);
+
+        expect("w[4]",  w[4],  0xa0fafe17);
+        expect("w[8]",  w[8],  0xf2c295f2);
+        expect("w[40]", w[40], 0xd014f9a8);
+        expect("w[43]", w[43], 0xb6630ca6);
 
         System.out.println("all checks passed");
     }
