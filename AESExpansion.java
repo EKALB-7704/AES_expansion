@@ -37,18 +37,22 @@ public class AESExpansion{
             |  (SBOX[(w >>> 16) & 0xff] << 16)
             |  (SBOX[(w >>>  8) & 0xff] <<  8)
             |   SBOX[w & 0xff];
-
     }
 
     public static int[] keyExpansion( byte [] key){
 
+        if (key.length != 16)
+            throw new IllegalArgumentException("expected 16-byte key, got " + key.length);
+
         int[] w = new int[44];
 
-       /* word temp;
-        for (i = 0; i < 4; i++){
-            w[i] = (key[4*i], key[4*i+1], key[4*i+2], key[4*i+3]);
+        for (int i = 0; i < 4; i++){
+            w[i] = ((key[4*i]   & 0xff) << 24)
+                 | ((key[4*i+1] & 0xff) << 16)
+                 | ((key[4*i+2] & 0xff) <<  8)
+                 |  (key[4*i+3] & 0xff);
         }
-
+        /*
         for (i = 4; i < 44; i++){
             temp = w [i-1];
             if (i mod 4 = 0) temp = Subword (RotWord (temp)) ^ Rcon[i/4];
@@ -59,7 +63,7 @@ public class AESExpansion{
     }
 
     static {
-        boolean[]seen = new boolean[256];
+        boolean[] seen = new boolean[256];
         for (int v : SBOX){
             if (v < 0 || v > 255 || seen[v]) throw new AssertionError("bad S-box");
             seen[v] = true;
@@ -67,11 +71,25 @@ public class AESExpansion{
     }
 
 
-    public static void main(String[] args) {
-
+    private static void expect(String label, int got, int want) {
+        if (got != want)
+            throw new AssertionError(String.format("%s: got %08x, want %08x", label, got, want));
+        System.out.printf("ok  %s = %08x%n", label, got);
     }
 
-    
+    public static void main(String[] args) {
+        expect("rotWord", rotWord(0x09cf4f3c), 0xcf4f3c09);
+        expect("subWord", subWord(0xcf4f3c09), 0x8a84eb01);
 
+        byte[] key = java.util.HexFormat.of()
+                .parseHex("2b7e151628aed2a6abf7158809cf4f3c");
+        int[] w = keyExpansion(key);
 
+        expect("w[0]", w[0], 0x2b7e1516);
+        expect("w[1]", w[1], 0x28aed2a6);
+        expect("w[2]", w[2], 0xabf71588);
+        expect("w[3]", w[3], 0x09cf4f3c);
+
+        System.out.println("all checks passed");
+    }
 }
