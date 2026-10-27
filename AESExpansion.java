@@ -43,25 +43,35 @@ public class AESExpansion{
     }
 
     public static int[] keyExpansion( byte [] key){
+        if (key.length != 16 && key.length != 24 && key.length != 32)
+            throw new IllegalArgumentException(
+                "key must be 16, 24 or 32 bytes; got " + key.length);
 
-        if (key.length != 16)
-            throw new IllegalArgumentException("expected 16-byte key, got " + key.length);
+        int nk = key.length / 4;        //words in the key: 4, 6, 8
+        int nr = nk + 6;                //rounds:          10, 12, 14
+        int[] w = new int[4 * (nr + 1)];//schedule words:  44, 52, 60
 
-        int[] w = new int[44];
-
-        for (int i = 0; i < 4; i++){
+        for (int i = 0; i < nk; i++){
             w[i] = ((key[4*i]   & 0xff) << 24)
                  | ((key[4*i+1] & 0xff) << 16)
                  | ((key[4*i+2] & 0xff) <<  8)
                  |  (key[4*i+3] & 0xff);
         }
         
-        for (int i = 4; i < 44; i++){
+        for (int i = nk; i < w.length; i++){
             int temp = w[i-1];
-            if (i % 4 == 0) temp = subWord(rotWord(temp)) ^ RCON[i/4 - 1];
 
-            w[i] = w[i-4] ^ temp;
+            if (i % nk == 0) {
+                temp = subWord(rotWord(temp)) ^ RCON[i/nk - 1];
+            } else if (nk > 6 && i % nk == 4) {
+                temp = subWord(temp);
+            }
+
+
+            w[i] = w[i-nk] ^ temp;
         }
+
+      
         return w;
     }
 
@@ -74,8 +84,17 @@ public class AESExpansion{
     }
 
 
-    /** FIPS-197 Appendix A test key. */
-    private static final String TEST_KEY = "2b7e151628aed2a6abf7158809cf4f3c";
+    /** FIPS-197 Appendix A test keys. */
+    private static final String TEST_KEY_128 = "2b7e151628aed2a6abf7158809cf4f3c";
+    private static final String TEST_KEY_192 = "8e73b0f7da0e6452c810f32b809079e562f8ead2522c6b7b";
+    private static final String TEST_KEY_256 =
+        "603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4";
+
+    private static void expectCount(String label, int got, int want) {
+        if (got != want)
+            throw new AssertionError(String.format("%s: got %d, want %d", label, got, want));
+        System.out.printf("ok  %s = %d words%n", label, got);
+    }
 
     private static void expect(String label, int got, int want) {
         if (got != want)
@@ -88,30 +107,46 @@ public class AESExpansion{
         expect("rotWord", rotWord(0x09cf4f3c), 0xcf4f3c09);
         expect("subWord", subWord(0xcf4f3c09), 0x8a84eb01);
 
-        int[] w = keyExpansion(parseKey(TEST_KEY));
+        // AES-128 - Appendix A.1
+        int[] w = keyExpansion(parseKey(TEST_KEY_128));
+        expectCount("AES-128 schedule", w.length, 44);
+        expect("AES-128 w[0]",  w[0],  0x2b7e1516);
+        expect("AES-128 w[1]",  w[1],  0x28aed2a6);
+        expect("AES-128 w[2]",  w[2],  0xabf71588);
+        expect("AES-128 w[3]",  w[3],  0x09cf4f3c);
+        expect("AES-128 w[4]",  w[4],  0xa0fafe17);
+        expect("AES-128 w[8]",  w[8],  0xf2c295f2);
+        expect("AES-128 w[40]", w[40], 0xd014f9a8);
+        expect("AES-128 w[43]", w[43], 0xb6630ca6);
 
-        expect("w[0]", w[0], 0x2b7e1516);
-        expect("w[1]", w[1], 0x28aed2a6);
-        expect("w[2]", w[2], 0xabf71588);
-        expect("w[3]", w[3], 0x09cf4f3c);
+        // AES-192 - Appendix A.2. w[10] is the first word that would change
+        // if the nk > 6 guard on the extra subWord branch were dropped.
+        w = keyExpansion(parseKey(TEST_KEY_192));
+        expectCount("AES-192 schedule", w.length, 52);
+        expect("AES-192 w[6]",  w[6],  0xfe0c91f7);
+        expect("AES-192 w[10]", w[10], 0x0e7a95b9);
+        expect("AES-192 w[51]", w[51], 0x01002202);
 
-        expect("w[4]",  w[4],  0xa0fafe17);
-        expect("w[8]",  w[8],  0xf2c295f2);
-        expect("w[40]", w[40], 0xd014f9a8);
-        expect("w[43]", w[43], 0xb6630ca6);
+        // AES-256 - Appendix A.3. w[12] is the first word produced by the
+        // extra subWord branch, so it fails if that branch is missing.
+        w = keyExpansion(parseKey(TEST_KEY_256));
+        expectCount("AES-256 schedule", w.length, 60);
+        expect("AES-256 w[8]",  w[8],  0x9ba35411);
+        expect("AES-256 w[12]", w[12], 0xa8b09c1a);
+        expect("AES-256 w[59]", w[59], 0x706c631e);
 
         System.out.println("all checks passed");
     }
 
     /**
-     * Parses a 128-bit key written as hex. Separators (spaces, colons,
-     * hyphens, underscores) are ignored, so "2b7e 1516 ..." is accepted.
+     * Parses a 128-, 192- or 256-bit key written as hex. Separators (spaces,
+     * colons, hyphens, underscores) are ignored, so "2b7e 1516 ..." is accepted.
      */
     private static byte[] parseKey(String text) {
         String hex = text.replaceAll("[\\s:_-]", "");
-        if (hex.length() != 32)
+        if (hex.length() != 32 && hex.length() != 48 && hex.length() != 64)
             throw new IllegalArgumentException(
-                "a 128-bit key is 32 hex digits; got " + hex.length());
+                "key must be 32, 48 or 64 hex digits (128/192/256-bit); got " + hex.length());
         try {
             return HexFormat.of().parseHex(hex);
         } catch (IllegalArgumentException e) {
@@ -119,7 +154,7 @@ public class AESExpansion{
         }
     }
 
-    /** Prints the 44-word schedule as 11 round keys of four words each. */
+    /** Prints the schedule as round keys of four words each (11, 13 or 15 of them). */
     private static void printSchedule(int[] w) {
         for (int round = 0; round * 4 < w.length; round++) {
             System.out.printf("round %2d:  ", round);
@@ -143,9 +178,9 @@ public class AESExpansion{
 
     /** Reads keys from stdin until a blank line or end of input. */
     private static void interactive() {
-        System.out.println("AES-128 key expansion.");
-        System.out.println("Enter a 128-bit key as 32 hex digits, or a blank line to quit.");
-        System.out.println("Example: " + TEST_KEY);
+        System.out.println("AES key expansion (128/192/256-bit).");
+        System.out.println("Enter a key as 32, 48 or 64 hex digits, or a blank line to quit.");
+        System.out.println("Example: " + TEST_KEY_128);
         Scanner in = new Scanner(System.in);
         while (true) {
             System.out.print("key> ");
@@ -163,9 +198,9 @@ public class AESExpansion{
         } else if (args[0].equals("--test")) {
             selfTest();
         } else if (args[0].equals("--help") || args[0].equals("-h")) {
-            System.out.println("usage: java AESExpansion [<32-hex-digit key> | --test]");
+            System.out.println("usage: java AESExpansion [<32/48/64-hex-digit key> | --test]");
             System.out.println("  no arguments  read keys from stdin");
-            System.out.println("  <key>         expand that key");
+            System.out.println("  <key>         expand that key (128, 192 or 256-bit)");
             System.out.println("  --test        run the FIPS-197 Appendix A vectors");
         } else {
             expandAndPrint(args[0]);
